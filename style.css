@@ -268,3 +268,27 @@ footer {
 #applyVideoFilter {
   background: #c4b5fd;
 }
+
+/* État normal */
+.filters .filter-btn {
+  border: 2px solid transparent;
+  outline: none;
+  transition: border-color 0.2s, background 0.2s, transform 0.2s;
+}
+
+/* État sélectionné : photo ou vidéo */
+.filters .filter-btn.active {
+  border: 2px solid #c4b5fd;
+  background: #45345f;
+  box-shadow: 0 0 0 2px #a78bfa33;
+  transform: translateY(-2px);
+}
+
+/* Évite le style actif au survol de tous les boutons */
+.filters .filter-btn:hover {
+  background-color: #403052;
+}
+
+.filters .filter-btn.active:hover {
+  background-color: #45345f;
+}

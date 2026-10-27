@@ -101,12 +101,27 @@ function stopCamera() {
 // ---------- FILTRES ----------
 
 function updateFilterButtons() {
-  document.querySelectorAll(".filter-btn").forEach(button => {
+  // Sélection des filtres photo uniquement
+  document.querySelectorAll("#editor .filter-btn").forEach(button => {
     button.classList.toggle(
       "active",
       button.dataset.filter === currentFilter
     );
   });
+
+  // Sélection des filtres vidéo uniquement
+  document.querySelectorAll(".video-filter-btn").forEach(button => {
+  button.addEventListener("click", () => {
+    selectedVideoFilter = button.dataset.videoFilter;
+
+    document.querySelectorAll(".video-filter-btn").forEach(item => {
+      item.classList.toggle("active", item === button);
+    });
+
+    videoFilterStatus.textContent =
+      "Filtre sélectionné : " + selectedVideoFilter;
+  });
+});
 }
 
 function updatePreviewFilter() {
