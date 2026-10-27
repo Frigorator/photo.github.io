@@ -504,24 +504,25 @@ document.querySelectorAll("[data-video-filter]").forEach(button => {
   });
 });
 
-// Traiter la vidéo après la capture.
+
 applyVideoFilterBtn.addEventListener("click", async () => {
-  if (!originalRecordedBlob || videoProcessing) {
+  console.log("Bouton Créer la vidéo filtrée cliqué");
+
+  if (!originalRecordedBlob) {
     videoFilterStatus.textContent =
-      "Enregistre d'abord une vidéo.";
+      "Aucune vidéo originale disponible. Enregistre une vidéo d'abord.";
     return;
   }
 
-  if (!HTMLCanvasElement.prototype.captureStream ||
-      !window.MediaRecorder) {
+  if (videoProcessing) {
     videoFilterStatus.textContent =
-      "Le traitement vidéo n'est pas pris en charge.";
+      "Le traitement est déjà en cours.";
     return;
   }
 
   videoProcessing = true;
   applyVideoFilterBtn.disabled = true;
-  downloadVideoBtn.disabled = true;
+  videoFilterStatus.textContent = "Préparation de la vidéo…";
 
   const sourceUrl = URL.createObjectURL(originalRecordedBlob);
   const sourceVideo = document.createElement("video");
@@ -531,9 +532,7 @@ applyVideoFilterBtn.addEventListener("click", async () => {
   sourceVideo.preload = "auto";
   sourceVideo.src = sourceUrl;
 
-  let outputStream = null;
-  let recorder = null;
-  let timeoutId = null;
+  let outputStream;
 
   try {
     await new Promise((resolve, reject) => {
@@ -545,41 +544,111 @@ applyVideoFilterBtn.addEventListener("click", async () => {
     videoFilterCanvas.width = sourceVideo.videoWidth;
     videoFilterCanvas.height = sourceVideo.videoHeight;
 
-    if (!videoFilterCanvas.width || !videoFilterCanvas.height) {
-      throw new Error("Dimensions de vidéo invalides.");
-    }
+    outputStream = videoFilterCanvas.captureStream(25);
 
-    // Choisir un format vidéo pris en charge.
     const mimeType = [
-      "video/webm;codecs=vp9",
       "video/webm;codecs=vp8",
       "video/webm"
     ].find(type => MediaRecorder.isTypeSupported(type));
 
-    outputStream = videoFilterCanvas.captureStream(30);
-
-    const chunks = [];
-
-    recorder = new MediaRecorder(
+    const recorder = new MediaRecorder(
       outputStream,
       mimeType ? { mimeType } : undefined
     );
 
-    const recordingFinished = new Promise((resolve, reject) => {
+    const chunks = [];
+
+    const finished = new Promise((resolve, reject) => {
       recorder.ondataavailable = event => {
         if (event.data.size > 0) chunks.push(event.data);
       };
 
-      recorder.onerror = event => {
-        reject(event.error || new Error("Erreur d'enregistrement."));
-      };
+      recorder.onerror = () =>
+        reject(new Error("Erreur pendant la création de la vidéo."));
 
-      recorder.onstop = () => {
-        resolve(new Blob(chunks, {
-          type: recorder.mimeType || "video/webm"
-        }));
-      };
+      recorder.onstop = () => resolve(new Blob(chunks, {
+        type: recorder.mimeType || "video/webm"
+      }));
     });
+
+    const drawFrame = () => {
+      videoFilterCtx.filter = filters[selectedVideoFilter] || "none";
+
+      videoFilterCtx.drawImage(
+        sourceVideo,
+        0,
+        0,
+        videoFilterCanvas.width,
+        videoFilterCanvas.height
+      );
+
+      videoFilterCtx.filter = "none";
+    };
+
+    // Dessiner une première image avant le démarrage
+    drawFrame();
+
+    recorder.start(250);
+    videoFilterStatus.textContent = "Création de la vidéo filtrée…";
+
+    let animationId;
+
+    const render = () => {
+      if (sourceVideo.ended || sourceVideo.paused) return;
+
+      drawFrame();
+      animationId = requestAnimationFrame(render);
+    };
+
+    sourceVideo.onended = () => {
+      cancelAnimationFrame(animationId);
+
+      // Dernière image, puis arrêt de l'enregistrement
+      drawFrame();
+
+      if (recorder.state === "recording") {
+        recorder.stop();
+      }
+    };
+
+    await sourceVideo.play();
+    render();
+
+    const resultBlob = await finished;
+
+    if (!resultBlob.size) {
+      throw new Error("La vidéo créée est vide.");
+    }
+
+    if (processedVideoUrl) {
+      URL.revokeObjectURL(processedVideoUrl);
+    }
+
+    processedVideoUrl = URL.createObjectURL(resultBlob);
+    processedVideo.src = processedVideoUrl;
+    processedVideo.hidden = false;
+    processedVideo.load();
+
+    downloadVideoBtn.disabled = false;
+    videoFilterStatus.textContent =
+      "Vidéo filtrée créée avec le filtre " + selectedVideoFilter + " !";
+
+  } catch (error) {
+    console.error("Erreur de traitement vidéo :", error);
+    videoFilterStatus.textContent = "Erreur : " + error.message;
+
+  } finally {
+    outputStream?.getTracks().forEach(track => track.stop());
+    sourceVideo.pause();
+    sourceVideo.removeAttribute("src");
+    sourceVideo.load();
+    URL.revokeObjectURL(sourceUrl);
+
+    videoProcessing = false;
+    applyVideoFilterBtn.disabled = false;
+  }
+});
+
 
     // Dessiner les images de la vidéo avec le filtre choisi.
     let drawing = false;
