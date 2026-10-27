@@ -313,6 +313,7 @@ function recordVideo() {
       const blob = new Blob(recordedChunks, {
         type: mediaRecorder.mimeType || "video/webm"
       });
+      saveOriginalRecordedVideo(blob);
 
       if (videoUrl) URL.revokeObjectURL(videoUrl);
 
@@ -444,3 +445,267 @@ window.addEventListener("pagehide", () => {
   if (photoUrl) URL.revokeObjectURL(photoUrl);
   if (videoUrl) URL.revokeObjectURL(videoUrl);
 });
+
+const videoFilterCanvas = document.getElementById("videoFilterCanvas");
+const videoFilterCtx = videoFilterCanvas.getContext("2d");
+
+const videoFilterStatus = document.getElementById("videoFilterStatus");
+const applyVideoFilterBtn = document.getElementById("applyVideoFilter");
+const downloadVideoBtn = document.getElementById("downloadVideo");
+const processedVideo = document.getElementById("processedVideo");
+
+let selectedVideoFilter = "original";
+let originalRecordedBlob = null;
+let processedVideoUrl = null;
+let videoProcessing = false;
+
+// Conserver la vidéo originale avant toute retouche.
+// À appeler dans mediaRecorder.onstop, après la création du Blob.
+
+function saveOriginalRecordedVideo(blob) {
+  originalRecordedBlob = blob;
+
+  if (processedVideoUrl) {
+    URL.revokeObjectURL(processedVideoUrl);
+    processedVideoUrl = null;
+  }
+
+  processedVideo.hidden = true;
+  downloadVideoBtn.disabled = true;
+  videoFilterStatus.textContent = "Vidéo originale prête à retoucher.";
+}
+
+// Sélection d'un filtre après l'enregistrement.
+document.querySelectorAll("[data-video-filter]").forEach(button => {
+  button.addEventListener("click", () => {
+    selectedVideoFilter = button.dataset.videoFilter;
+
+    document.querySelectorAll("[data-video-filter]").forEach(item => {
+      item.classList.toggle("active", item === button);
+    });
+
+    videoFilterStatus.textContent =
+      "Filtre sélectionné : " + selectedVideoFilter;
+  });
+});
+
+// Traiter la vidéo après la capture.
+applyVideoFilterBtn.addEventListener("click", async () => {
+  if (!originalRecordedBlob || videoProcessing) {
+    videoFilterStatus.textContent =
+      "Enregistre d'abord une vidéo.";
+    return;
+  }
+
+  if (!HTMLCanvasElement.prototype.captureStream ||
+      !window.MediaRecorder) {
+    videoFilterStatus.textContent =
+      "Le traitement vidéo n'est pas pris en charge.";
+    return;
+  }
+
+  videoProcessing = true;
+  applyVideoFilterBtn.disabled = true;
+  downloadVideoBtn.disabled = true;
+
+  const sourceUrl = URL.createObjectURL(originalRecordedBlob);
+  const sourceVideo = document.createElement("video");
+
+  sourceVideo.muted = true;
+  sourceVideo.playsInline = true;
+  sourceVideo.preload = "auto";
+  sourceVideo.src = sourceUrl;
+
+  let outputStream = null;
+  let recorder = null;
+  let timeoutId = null;
+
+  try {
+    await new Promise((resolve, reject) => {
+      sourceVideo.onloadedmetadata = resolve;
+      sourceVideo.onerror = () =>
+        reject(new Error("Impossible de lire la vidéo originale."));
+    });
+
+    videoFilterCanvas.width = sourceVideo.videoWidth;
+    videoFilterCanvas.height = sourceVideo.videoHeight;
+
+    if (!videoFilterCanvas.width || !videoFilterCanvas.height) {
+      throw new Error("Dimensions de vidéo invalides.");
+    }
+
+    // Choisir un format vidéo pris en charge.
+    const mimeType = [
+      "video/webm;codecs=vp9",
+      "video/webm;codecs=vp8",
+      "video/webm"
+    ].find(type => MediaRecorder.isTypeSupported(type));
+
+    outputStream = videoFilterCanvas.captureStream(30);
+
+    const chunks = [];
+
+    recorder = new MediaRecorder(
+      outputStream,
+      mimeType ? { mimeType } : undefined
+    );
+
+    const recordingFinished = new Promise((resolve, reject) => {
+      recorder.ondataavailable = event => {
+        if (event.data.size > 0) chunks.push(event.data);
+      };
+
+      recorder.onerror = event => {
+        reject(event.error || new Error("Erreur d'enregistrement."));
+      };
+
+      recorder.onstop = () => {
+        resolve(new Blob(chunks, {
+          type: recorder.mimeType || "video/webm"
+        }));
+      };
+    });
+
+    // Dessiner les images de la vidéo avec le filtre choisi.
+    let drawing = false;
+
+    function drawFilteredFrame() {
+      if (sourceVideo.ended || sourceVideo.paused) return;
+
+      if (!drawing) {
+        drawing = true;
+
+        videoFilterCtx.filter = filters[selectedVideoFilter] || "none";
+
+        videoFilterCtx.drawImage(
+          sourceVideo,
+          0,
+          0,
+          videoFilterCanvas.width,
+          videoFilterCanvas.height
+        );
+
+        videoFilterCtx.filter = "none";
+        drawing = false;
+      }
+
+      requestAnimationFrame(drawFilteredFrame);
+    }
+
+    sourceVideo.currentTime = 0;
+
+    await new Promise((resolve, reject) => {
+      sourceVideo.onseeked = resolve;
+      sourceVideo.onerror = () =>
+        reject(new Error("Impossible de démarrer le traitement."));
+    });
+
+    // Produire des images filtrées à vitesse normale.
+    recorder.start(250);
+
+    const renderFrame = () => {
+      if (sourceVideo.ended) {
+        if (recorder.state === "recording") recorder.stop();
+        return;
+      }
+
+      videoFilterCtx.filter = filters[selectedVideoFilter] || "none";
+
+      videoFilterCtx.drawImage(
+        sourceVideo,
+        0,
+        0,
+        videoFilterCanvas.width,
+        videoFilterCanvas.height
+      );
+
+      videoFilterCtx.filter = "none";
+    };
+
+    // Le lecteur joue pendant que les images sont capturées.
+    sourceVideo.onended = () => {
+      if (recorder.state === "recording") recorder.stop();
+    };
+
+    sourceVideo.requestVideoFrameCallback &&
+      sourceVideo.requestVideoFrameCallback(function frameCallback() {
+        renderFrame();
+
+        if (!sourceVideo.ended) {
+          sourceVideo.requestVideoFrameCallback(frameCallback);
+        }
+      });
+
+    // Repli pour les navigateurs sans requestVideoFrameCallback.
+    if (!sourceVideo.requestVideoFrameCallback) {
+      const interval = setInterval(() => {
+        if (sourceVideo.ended) {
+          clearInterval(interval);
+          return;
+        }
+        renderFrame();
+      }, 1000 / 30);
+    }
+
+    await sourceVideo.play();
+
+    videoFilterStatus.textContent =
+      "Traitement de la vidéo en cours…";
+
+    // Protection contre un traitement qui resterait bloqué.
+    timeoutId = setTimeout(() => {
+      if (recorder.state === "recording") recorder.stop();
+    }, Math.max(30000, (sourceVideo.duration + 10) * 1000));
+
+    const processedBlob = await recordingFinished;
+    clearTimeout(timeoutId);
+
+    if (!processedBlob.size) {
+      throw new Error("Le fichier vidéo obtenu est vide.");
+    }
+
+    if (processedVideoUrl) URL.revokeObjectURL(processedVideoUrl);
+
+    processedVideoUrl = URL.createObjectURL(processedBlob);
+    processedVideo.src = processedVideoUrl;
+    processedVideo.hidden = false;
+
+    downloadVideoBtn.disabled = false;
+
+    videoFilterStatus.textContent =
+      "Vidéo filtrée créée : " + selectedVideoFilter + ".";
+
+  } catch (error) {
+    console.error(error);
+
+    if (timeoutId) clearTimeout(timeoutId);
+
+    if (recorder?.state === "recording") {
+      recorder.stop();
+    }
+
+    videoFilterStatus.textContent =
+      "Erreur de traitement : " + error.message;
+
+  } finally {
+    outputStream?.getTracks().forEach(track => track.stop());
+    sourceVideo.pause();
+    sourceVideo.removeAttribute("src");
+    sourceVideo.load();
+    URL.revokeObjectURL(sourceUrl);
+
+    videoProcessing = false;
+    applyVideoFilterBtn.disabled = false;
+  }
+});
+
+// Télécharger le résultat filtré.
+downloadVideoBtn.addEventListener("click", () => {
+  if (!processedVideoUrl) return;
+
+  const link = document.createElement("a");
+  link.href = processedVideoUrl;
+  link.download = `photofilter-${selectedVideoFilter}.webm`;
+  link.click();
+});
+

@@ -71,17 +71,55 @@
     </section>
 
     <section id="videoResult" hidden>
-      <h2>🎬 Ta vidéo</h2>
-      <video id="recordedVideo" controls playsinline></video>
+<h2>🎬 Retouche de ta vidéo</h2>
+  <p>Choisis un filtre à appliquer à ta vidéo enregistrée.</p>
+
+  <video id="recordedVideo" controls playsinline></video>
+
+  <h3>🎨 Filtres vidéo</h3>
+
+  <div class="filters">
+    <button class="filter-btn video-filter-btn active"
+            data-video-filter="original">
+      <span class="filter-preview"></span>
+      Original
+    </button>
+
+    <button class="filter-btn video-filter-btn"
+            data-video-filter="vintage">
+      <span class="filter-preview vintage-preview"></span>
+      Vintage
+    </button>
+
+    <button class="filter-btn video-filter-btn"
+            data-video-filter="bw">
+      <span class="filter-preview bw-preview"></span>
+      Noir & Blanc
+    </button>
+
+    <button class="filter-btn video-filter-btn"
+            data-video-filter="neon">
+      <span class="filter-preview neon-preview"></span>
+      Néon
+    </button>
+  </div>
+
+  <p id="videoFilterStatus" role="status">
+    Vidéo originale
+  </p>
+
   <div class="controls">
-    <button id="downloadVideo">⬇️ Télécharger la vidéo</button>
+    <button id="applyVideoFilter">✨ Créer la vidéo filtrée</button>
+    <button id="downloadVideo" disabled>⬇️ Télécharger la vidéo</button>
     <button id="retakePhoto">🔁 Nouvelle capture</button>
   </div>
 
-      <p class="hint">
-        Les filtres sont disponibles pour les photos. La vidéo est enregistrée
-        sans filtre dans cette version.
-      </p>
+  <video id="processedVideo" controls playsinline hidden></video>
+
+  <p class="hint">
+    La création se fait sur ton appareil. Garde cette page ouverte
+    pendant le traitement.
+  </p>
     </section>
   </main>
 
