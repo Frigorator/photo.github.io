@@ -1,0 +1,92 @@
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="manifest" href="./manifest.json">
+  <link rel="apple-touch-icon" href="./icons/icon-192.png">
+  <meta name="theme-color" content="#171326">
+  <meta name="description" content="Prends des photos et applique des filtres créatifs.">
+
+  <title>PhotoFilter - Studio créatif</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="script.js" defer></script>
+</head>
+
+<body>
+  <header>
+    <h1>✨ PhotoFilter</h1>
+    <p>Capture tes moments, transforme-les !</p>
+  </header>
+
+  <main>
+    <section class="camera-section">
+      <div class="camera-frame">
+        <video id="video" autoplay playsinline muted></video>
+        <canvas id="canvas" hidden></canvas>
+        <img id="photo" alt="Photo capturée" hidden>
+
+        <div id="placeholder" class="placeholder">
+          <span>📷</span>
+          <p>Active la caméra pour commencer</p>
+        </div>
+      </div>
+
+      <p id="status" role="status">Caméra inactive</p>
+
+      <div class="controls">
+        <button id="startCamera">📷 Activer la caméra</button>
+        <button id="takePhoto" disabled>📸 Prendre une photo</button>
+        <button id="recordVideo" disabled>🎥 Enregistrer une vidéo</button>
+        <button id="switchCamera" disabled>🔄 Changer de caméra</button>
+      </div>
+    </section>
+
+    <section id="editor" hidden>
+      <h2>🎨 Choisis ton filtre</h2>
+      <p>Le filtre sera appliqué à ta photo capturée.</p>
+
+      <div class="filters">
+        <button class="filter-btn" data-filter="vintage">
+          <span class="filter-preview vintage-preview"></span>
+          Vintage
+        </button>
+
+        <button class="filter-btn" data-filter="bw">
+          <span class="filter-preview bw-preview"></span>
+          Noir & Blanc
+        </button>
+
+        <button class="filter-btn" data-filter="neon">
+          <span class="filter-preview neon-preview"></span>
+          Néon
+        </button>
+      </div>
+
+      <div class="controls">
+        <button id="downloadPhoto">⬇️ Télécharger la photo</button>
+        <button id="retakePhoto">🔁 Recommencer</button>
+      </div>
+    </section>
+
+    <section id="videoResult" hidden>
+      <h2>🎬 Ta vidéo</h2>
+      <video id="recordedVideo" controls playsinline></video>
+
+      <div class="controls">
+        <button id="downloadVideo">⬇️ Télécharger la vidéo</button>
+      </div>
+
+      <p class="hint">
+        Les filtres sont disponibles pour les photos. La vidéo est enregistrée
+        sans filtre dans cette version.
+      </p>
+    </section>
+  </main>
+
+  <footer>
+    <p>PhotoFilter · Ton mini studio créatif 🎨</p>
+  </footer>
+</body>
+</html>
