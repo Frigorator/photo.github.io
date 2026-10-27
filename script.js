@@ -16,6 +16,16 @@ const editor = document.getElementById("editor");
 const videoResult = document.getElementById("videoResult");
 const recordedVideo = document.getElementById("recordedVideo");
 
+const originalCanvas = document.createElement("canvas");
+const originalCtx = originalCanvas.getContext("2d");
+
+const filters = {
+  original: "none",
+  vintage: "sepia(0.85) contrast(1.1) saturate(0.85)",
+  bw: "grayscale(1) contrast(1.15)",
+  neon: "saturate(2.2) contrast(1.2) hue-rotate(10deg)"
+};
+
 let stream = null;
 let mediaRecorder = null;
 let recordedChunks = [];
@@ -24,22 +34,20 @@ let currentFilter = "original";
 let facingMode = "environment";
 let photoUrl = null;
 let videoUrl = null;
+let recordingCanvas = null;
+let recordingCtx = null;
+let animationFrame = null;
+let recording = false;
+let recordingStream = null;
 
-// Filtres disponibles
-const filters = {
-  original: "none",
-  vintage: "sepia(0.85) contrast(1.1) saturate(0.85)",
-  bw: "grayscale(1) contrast(1.15)",
-  neon: "saturate(2.2) contrast(1.2) hue-rotate(10deg)"
-};
+// ---------- CAMÉRA ----------
 
-// Active la caméra du téléphone
 async function startCamera() {
   stopCamera();
 
   if (!navigator.mediaDevices?.getUserMedia) {
     statusText.textContent =
-      "Caméra indisponible. Utilise HTTPS ou localhost.";
+      "Caméra indisponible : utilise HTTPS ou localhost.";
     return;
   }
 
@@ -65,15 +73,22 @@ async function startCamera() {
     recordVideoBtn.disabled = false;
     switchCameraBtn.disabled = false;
 
-    statusText.textContent = "Caméra prête !";
+    // Les filtres sont disponibles avant la capture vidéo.
+    editor.hidden = false;
+    videoResult.hidden = true;
+
+    updateFilterButtons();
+    updatePreviewFilter();
+
+    statusText.textContent =
+      "Caméra prête ! Choisis un filtre avant de filmer.";
   } catch (error) {
     console.error(error);
     statusText.textContent =
-      "Impossible d'accéder à la caméra. Vérifie les autorisations.";
+      "Accès caméra refusé ou indisponible. Vérifie les autorisations.";
   }
 }
 
-// Arrête le flux de la caméra
 function stopCamera() {
   if (stream) {
     stream.getTracks().forEach(track => track.stop());
@@ -83,7 +98,40 @@ function stopCamera() {
   video.srcObject = null;
 }
 
-// Prend une photo
+// ---------- FILTRES ----------
+
+function updateFilterButtons() {
+  document.querySelectorAll(".filter-btn").forEach(button => {
+    button.classList.toggle(
+      "active",
+      button.dataset.filter === currentFilter
+    );
+  });
+}
+
+function updatePreviewFilter() {
+  // Aperçu du filtre en direct dans la caméra.
+  video.style.filter = filters[currentFilter];
+}
+
+function selectFilter(filterName) {
+  if (!Object.hasOwn(filters, filterName)) return;
+
+  currentFilter = filterName;
+  updateFilterButtons();
+  updatePreviewFilter();
+
+  if (photoCaptured) {
+    renderFilteredPhoto();
+  }
+
+  statusText.textContent = recording
+    ? "Enregistrement en cours avec le filtre " + filterName + "."
+    : "Filtre sélectionné : " + filterName;
+}
+
+// ---------- PHOTO ----------
+
 function takePhoto() {
   if (!stream || !video.videoWidth) {
     statusText.textContent = "Attends que la caméra soit prête.";
@@ -93,89 +141,66 @@ function takePhoto() {
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
 
-  // Capture l'image originale sans filtre
-  ctx.filter = "none";
-  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  // Conserve une copie de l'image originale.
+  originalCanvas.width = video.videoWidth;
+  originalCanvas.height = video.videoHeight;
+  originalCtx.drawImage(
+    video, 0, 0, originalCanvas.width, originalCanvas.height
+  );
 
   photoCaptured = true;
-  currentFilter = "original";
+  renderFilteredPhoto();
 
   photo.hidden = false;
   video.hidden = true;
   placeholder.hidden = true;
 
-  applyFilter("original");
-
   editor.hidden = false;
   videoResult.hidden = true;
 
-  statusText.textContent = "Photo prise ! Choisis ton filtre.";
-
-  document.querySelectorAll(".filter-btn").forEach(btn => {
-    btn.classList.remove("active");
-  });
-
-  stopCamera();
-  startCameraBtn.textContent = "📷 Reprendre une photo";
   takePhotoBtn.disabled = true;
   recordVideoBtn.disabled = true;
   switchCameraBtn.disabled = true;
+
+  statusText.textContent = "Photo prise ! Tu peux changer de filtre.";
+
+  stopCamera();
+  startCameraBtn.textContent = "📷 Reprendre une photo";
 }
 
-// Applique un filtre au contenu du canvas
-function applyFilter(filterName) {
+function renderFilteredPhoto() {
   if (!photoCaptured) return;
 
-  currentFilter = filterName;
+  canvas.width = originalCanvas.width;
+  canvas.height = originalCanvas.height;
 
-  const original = document.createElement("canvas");
-  original.width = canvas.width;
-  original.height = canvas.height;
-
-  const originalCtx = original.getContext("2d");
-  originalCtx.drawImage(canvas, 0, 0);
-
-  // Le canvas source reste intact : chaque filtre repart de l'original.
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.filter = filters[filterName];
-  ctx.drawImage(original, 0, 0);
+  ctx.filter = filters[currentFilter];
+  ctx.drawImage(originalCanvas, 0, 0);
   ctx.filter = "none";
 
-  // Actualise l'aperçu
   if (photoUrl) {
     URL.revokeObjectURL(photoUrl);
+    photoUrl = null;
   }
 
   canvas.toBlob(blob => {
-    if (!blob) {
-      statusText.textContent = "Erreur lors du traitement de la photo.";
-      return;
-    }
+    if (!blob) return;
 
     photoUrl = URL.createObjectURL(blob);
     photo.src = photoUrl;
   }, "image/png");
 
-  document.querySelectorAll(".filter-btn").forEach(btn => {
-    btn.classList.toggle(
-      "active",
-      btn.dataset.filter === filterName
-    );
-  });
-
-  statusText.textContent =
-    "Filtre appliqué : " + filterName;
+  updateFilterButtons();
 }
 
-// Télécharge la photo filtrée
 function downloadPhoto() {
-  if (!photoCaptured) return;
+  if (!photoCaptured) {
+    statusText.textContent = "Prends d'abord une photo.";
+    return;
+  }
 
   canvas.toBlob(blob => {
-    if (!blob) {
-      statusText.textContent = "Impossible de télécharger la photo.";
-      return;
-    }
+    if (!blob) return;
 
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -188,35 +213,75 @@ function downloadPhoto() {
   }, "image/png");
 }
 
-// Enregistre une vidéo
+// ---------- VIDÉO AVEC FILTRE ----------
+
+function drawVideoFrame() {
+  if (!recording || !recordingCtx || !video.videoWidth) return;
+
+  recordingCtx.filter = filters[currentFilter];
+
+  recordingCtx.drawImage(
+    video,
+    0,
+    0,
+    recordingCanvas.width,
+    recordingCanvas.height
+  );
+
+  recordingCtx.filter = "none";
+
+  animationFrame = requestAnimationFrame(drawVideoFrame);
+}
+
 function recordVideo() {
-  if (!stream) {
+  if (!stream || !video.videoWidth) {
     statusText.textContent = "Active d'abord la caméra.";
     return;
   }
 
-  if (!window.MediaRecorder) {
+  if (!window.MediaRecorder ||
+      !HTMLCanvasElement.prototype.captureStream) {
     statusText.textContent =
-      "L'enregistrement vidéo n'est pas pris en charge.";
+      "L'enregistrement vidéo filtré n'est pas pris en charge par ce navigateur.";
     return;
   }
 
-  if (mediaRecorder?.state === "recording") {
+  if (recording && mediaRecorder) {
     mediaRecorder.stop();
     return;
   }
 
   recordedChunks = [];
 
+  // Canvas dédié à la vidéo : il ne modifie pas la photo.
+  recordingCanvas = document.createElement("canvas");
+  recordingCanvas.width = video.videoWidth;
+  recordingCanvas.height = video.videoHeight;
+  recordingCtx = recordingCanvas.getContext("2d");
+
+  recording = true;
+  drawVideoFrame();
+
+  // Capture les images du canvas filtré.
+  const filteredStream = recordingCanvas.captureStream(30);
+
+  // Ajoute le son du micro à la vidéo filtrée.
+  const audioTrack = stream.getAudioTracks()[0];
+  if (audioTrack) {
+    filteredStream.addTrack(audioTrack);
+  }
+
+  recordingStream = filteredStream;
+
   const mimeType = [
-    "video/webm;codecs=vp9",
-    "video/webm;codecs=vp8",
+    "video/webm;codecs=vp9,opus",
+    "video/webm;codecs=vp8,opus",
     "video/webm"
   ].find(type => MediaRecorder.isTypeSupported(type));
 
   try {
     mediaRecorder = new MediaRecorder(
-      stream,
+      recordingStream,
       mimeType ? { mimeType } : undefined
     );
 
@@ -226,7 +291,25 @@ function recordVideo() {
       }
     };
 
+    mediaRecorder.onerror = event => {
+      console.error(event);
+      statusText.textContent = "Une erreur est survenue pendant l'enregistrement.";
+    };
+
     mediaRecorder.onstop = () => {
+      recording = false;
+
+      if (animationFrame !== null) {
+        cancelAnimationFrame(animationFrame);
+        animationFrame = null;
+      }
+
+      if (recordingStream) {
+        // Arrête uniquement les pistes du canvas.
+        recordingStream.getVideoTracks().forEach(track => track.stop());
+        recordingStream = null;
+      }
+
       const blob = new Blob(recordedChunks, {
         type: mediaRecorder.mimeType || "video/webm"
       });
@@ -239,62 +322,89 @@ function recordVideo() {
       videoResult.hidden = false;
       editor.hidden = true;
 
-      statusText.textContent = "Vidéo enregistrée !";
       recordVideoBtn.textContent = "🎥 Enregistrer une vidéo";
+      statusText.textContent =
+        "Vidéo enregistrée avec le filtre " + currentFilter + " !";
     };
 
-    mediaRecorder.start();
+    mediaRecorder.start(250);
 
     recordVideoBtn.textContent = "⏹️ Arrêter l'enregistrement";
-    statusText.textContent = "Enregistrement en cours...";
+    statusText.textContent =
+      "Enregistrement avec le filtre " + currentFilter + "…";
   } catch (error) {
     console.error(error);
+    recording = false;
+
+    if (animationFrame !== null) {
+      cancelAnimationFrame(animationFrame);
+      animationFrame = null;
+    }
+
+    recordingStream?.getTracks().forEach(track => track.stop());
+    recordingStream = null;
+
     statusText.textContent = "Impossible de démarrer l'enregistrement.";
   }
 }
 
-// Télécharge la vidéo enregistrée
 function downloadVideo() {
-  if (!videoUrl) return;
+  if (!videoUrl) {
+    statusText.textContent = "Enregistre d'abord une vidéo.";
+    return;
+  }
 
   const link = document.createElement("a");
   link.href = videoUrl;
-  link.download = "ma-video.webm";
+  link.download = `photofilter-${currentFilter}.webm`;
   link.click();
 }
 
-// Recommence une capture
-function retakePhoto() {
+// ---------- NOUVELLE CAPTURE ----------
+
+async function retakePhoto() {
+  if (recording && mediaRecorder?.state === "recording") {
+    mediaRecorder.stop();
+  }
+
   photoCaptured = false;
-  currentFilter = "original";
+
+  if (photoUrl) {
+    URL.revokeObjectURL(photoUrl);
+    photoUrl = null;
+  }
 
   editor.hidden = true;
   videoResult.hidden = true;
 
   photo.hidden = true;
   video.hidden = false;
+  placeholder.hidden = false;
 
-  startCamera();
-}
-
-// Change entre caméra avant et arrière
-async function switchCamera() {
-  facingMode = facingMode === "environment"
-    ? "user"
-    : "environment";
+  takePhotoBtn.disabled = false;
+  recordVideoBtn.disabled = false;
+  switchCameraBtn.disabled = false;
 
   await startCamera();
 }
 
-// Événements des boutons
+async function switchCamera() {
+  if (recording) return;
+
+  facingMode = facingMode === "environment" ? "user" : "environment";
+  await startCamera();
+}
+
+// ---------- ÉVÉNEMENTS ----------
+
 startCameraBtn.addEventListener("click", startCamera);
 takePhotoBtn.addEventListener("click", takePhoto);
 recordVideoBtn.addEventListener("click", recordVideo);
 switchCameraBtn.addEventListener("click", switchCamera);
 
-document.querySelectorAll(".filter-btn").forEach(btn => {
-  btn.addEventListener("click", () => {
-    applyFilter(btn.dataset.filter);
+document.querySelectorAll(".filter-btn").forEach(button => {
+  button.addEventListener("click", () => {
+    selectFilter(button.dataset.filter);
   });
 });
 
@@ -307,32 +417,30 @@ document.getElementById("downloadVideo")
 document.getElementById("retakePhoto")
   .addEventListener("click", retakePhoto);
 
-// Libère les ressources lors de la fermeture de la page
-window.addEventListener("pagehide", () => {
-  stopCamera();
+// ---------- PWA ----------
 
-  if (photoUrl) URL.revokeObjectURL(photoUrl);
-  if (videoUrl) URL.revokeObjectURL(videoUrl);
-});
-
-/* Installation PWA : enregistrement du service worker */
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {
-      const registration = await navigator.serviceWorker.register(
-        "./service-worker.js"
-      );
-
-      console.log(
-        "PhotoFilter est prête pour le mode hors ligne.",
-        registration.scope
-      );
+      await navigator.serviceWorker.register("./service-worker.js");
+      console.log("PhotoFilter PWA prête.");
     } catch (error) {
-      console.error(
-        "Erreur lors de l'enregistrement du service worker :",
-        error
-      );
+      console.error("Erreur PWA :", error);
     }
   });
 }
 
+window.addEventListener("pagehide", () => {
+  recording = false;
+
+  if (animationFrame !== null) {
+    cancelAnimationFrame(animationFrame);
+  }
+
+  stopCamera();
+
+  recordingStream?.getTracks().forEach(track => track.stop());
+
+  if (photoUrl) URL.revokeObjectURL(photoUrl);
+  if (videoUrl) URL.revokeObjectURL(videoUrl);
+});
