@@ -110,7 +110,7 @@ function updateFilterButtons() {
   });
 
   // Sélection des filtres vidéo uniquement
-  document.querySelectorAll(".video-filter-btn").forEach(button => {
+document.querySelectorAll(".video-filter-btn").forEach(button => {
   button.addEventListener("click", () => {
     selectedVideoFilter = button.dataset.videoFilter;
 
